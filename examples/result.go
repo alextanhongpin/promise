@@ -23,11 +23,9 @@ func main() {
 	}
 
 	ctx := context.Background()
-	res, err := promise.New(ctx, asyncTask).Await()
+	res := promise.New(ctx, asyncTask).AwaitResult()
 
-	if err != nil {
-		panic(err)
+	if res.Ok() {
+		fmt.Println(res.Result())
 	}
-
-	fmt.Println(res)
 }

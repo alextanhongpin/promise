@@ -40,6 +40,10 @@ func (r *Result[T]) IsZero() bool {
 	return r == nil || !r.dirty
 }
 
+func (r *Result[T]) Ok() bool {
+	return r.Error() == nil
+}
+
 func (r *Result[T]) Unwrap() (T, error) {
 	return r.Result(), r.Error()
 }

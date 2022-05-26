@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -18,27 +17,12 @@ func main() {
 
 	asyncTask := func(ctx context.Context) (int, error) {
 		n := rand.Intn(10)
-		fmt.Println("running task", n)
-		time.Sleep(1 * time.Second)
-		return 0, errors.New("bad request")
-	}
-
-	// This won't be called.
-	asyncThenTask := func(ctx context.Context, n int) (int, error) {
-		fmt.Println("running then", n)
-		time.Sleep(1 * time.Second)
-		return n + 100, nil
-	}
-
-	errorHandler := func(err error) {
-		fmt.Println("asyncError:", err)
+		panic(fmt.Errorf("running task: %d", n))
 	}
 
 	ctx := context.Background()
-	res, err := promise.New(ctx, asyncTask).Then(asyncThenTask).Catch(errorHandler).Await()
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(res)
+	p := promise.New(ctx, asyncTask)
+	_ = promise.Catch(p, func(err error) {
+		fmt.Println("got error", err)
+	})
 }

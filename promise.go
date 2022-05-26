@@ -2,6 +2,8 @@ package promise
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -9,31 +11,42 @@ import (
 
 const MaxGoroutine = 1_000
 
+var ErrPanic = errors.New("panic")
+
 type Promise[T any] struct {
-	res    T
-	err    error
-	status Status
-	wg     sync.WaitGroup
-	mu     sync.RWMutex
-	ctx    context.Context
-	once   sync.Once
+	res  T
+	err  error
+	wg   sync.WaitGroup
+	once sync.Once
 }
 
 type Task[T any] func(ctx context.Context) (T, error)
 
 func New[T any](ctx context.Context, fn Task[T]) *Promise[T] {
-	p := &Promise[T]{
-		status: Pending,
-		ctx:    ctx,
-	}
+	p := &Promise[T]{}
 	p.wg.Add(2)
-	ch := make(chan Result[T], 1)
+
+	done := make(chan bool)
 
 	go func() {
 		defer p.wg.Done()
+		defer close(done)
+		defer func() {
+			if err := recover(); err != nil {
+				if perr, ok := err.(error); ok {
+					p.reject(perr)
+				} else {
+					p.reject(fmt.Errorf("%w: %v", ErrPanic, err))
+				}
+			}
+		}()
 
 		res, err := fn(ctx)
-		ch <- Result[T]{res: res, err: err, dirty: true}
+		if err != nil {
+			p.reject(err)
+		} else {
+			p.resolve(res)
+		}
 	}()
 
 	go func() {
@@ -42,13 +55,7 @@ func New[T any](ctx context.Context, fn Task[T]) *Promise[T] {
 		select {
 		case <-ctx.Done():
 			p.reject(ctx.Err())
-		case result := <-ch:
-			res, err := result.Unwrap()
-			if err != nil {
-				p.reject(err)
-			} else {
-				p.resolve(res)
-			}
+		case <-done:
 		}
 	}()
 
@@ -57,52 +64,35 @@ func New[T any](ctx context.Context, fn Task[T]) *Promise[T] {
 
 func (p *Promise[T]) Await() (T, error) {
 	p.wg.Wait()
+
 	return p.res, p.err
 }
 
-func (p *Promise[T]) Then(fn func(context.Context, T) (T, error)) *Promise[T] {
-	p.wg.Wait()
-	if p.Status() == Rejected {
-		return p
+func (p *Promise[T]) AwaitResult() *Result[T] {
+	res, err := p.Await()
+	if err != nil {
+		return Reject[T](err)
 	}
 
-	return New(p.ctx, func(ctx context.Context) (t T, err error) {
-		return fn(ctx, p.res)
-	})
-}
-
-func (p *Promise[T]) Catch(fn func(err error)) *Promise[T] {
-	p.wg.Wait()
-	if p.Status() == Rejected {
-		fn(p.err)
-	}
-	return p
+	return Resolve(res)
 }
 
 func (p *Promise[T]) resolve(t T) {
 	p.once.Do(func() {
 		p.res = t
-		p.status = Fulfilled
 	})
 }
 
 func (p *Promise[T]) reject(err error) {
 	p.once.Do(func() {
 		p.err = err
-		p.status = Rejected
 	})
 }
 
-func (p *Promise[T]) Status() Status {
-	p.mu.RLock()
-	status := p.status
-	p.mu.RUnlock()
-
-	return status
-}
-
+// All attempts to resolves all promises and rejects on the first error.
+// The context is not propagated to the children promises.
 func All[T any](ctx context.Context, promises ...*Promise[T]) *Promise[[]T] {
-	return New[[]T](ctx, func(ctx context.Context) ([]T, error) {
+	return New(ctx, func(ctx context.Context) ([]T, error) {
 		result := make([]T, len(promises))
 
 		g, ctx := errgroup.WithContext(ctx)
@@ -131,8 +121,10 @@ func All[T any](ctx context.Context, promises ...*Promise[T]) *Promise[[]T] {
 	})
 }
 
+// AllTasks attempts to resolves all tasks, and rejects on the first error.
+// The context is passed to each task.
 func AllTask[T any](ctx context.Context, tasks ...Task[T]) *Promise[[]T] {
-	return New[[]T](ctx, func(ctx context.Context) ([]T, error) {
+	return New(ctx, func(ctx context.Context) ([]T, error) {
 		result := make([]T, len(tasks))
 
 		g, ctx := errgroup.WithContext(ctx)
@@ -141,7 +133,17 @@ func AllTask[T any](ctx context.Context, tasks ...Task[T]) *Promise[[]T] {
 		for i, task := range tasks {
 			i, task := i, task
 
-			g.Go(func() error {
+			g.Go(func() (err error) {
+				defer func() {
+					if in := recover(); in != nil {
+						if perr, ok := in.(error); ok {
+							err = perr
+						} else {
+							err = fmt.Errorf("%w: %v", ErrPanic, in)
+						}
+					}
+				}()
+
 				res, err := task(ctx)
 				if err != nil {
 					return err
@@ -162,42 +164,61 @@ func AllTask[T any](ctx context.Context, tasks ...Task[T]) *Promise[[]T] {
 }
 
 func AllSettled[T any, K []*Result[T]](ctx context.Context, promises ...*Promise[T]) *Promise[K] {
-	return New[K](ctx, func(ctx context.Context) (K, error) {
+	return New(ctx, func(ctx context.Context) (K, error) {
 		var wg sync.WaitGroup
 		wg.Add(len(promises))
 
 		result := make([]*Result[T], len(promises))
 		for i, promise := range promises {
-			i, promise := i, promise
 
-			res, err := promise.Await()
-			if err != nil {
-				result[i] = Reject[T](err)
-			} else {
-				result[i] = Resolve(res)
-			}
+			go func(i int, promise *Promise[T]) {
+				defer wg.Done()
+
+				res, err := promise.Await()
+				if err != nil {
+					result[i] = Reject[T](err)
+				} else {
+					result[i] = Resolve(res)
+				}
+			}(i, promise)
 		}
+
+		wg.Wait()
 
 		return result, nil
 	})
 }
 
 func AllTaskSettled[T any, K []*Result[T]](ctx context.Context, tasks ...Task[T]) *Promise[K] {
-	return New[K](ctx, func(ctx context.Context) (K, error) {
+	return New(ctx, func(ctx context.Context) (K, error) {
 		var wg sync.WaitGroup
 		wg.Add(len(tasks))
 
 		result := make([]*Result[T], len(tasks))
 		for i, task := range tasks {
-			i, task := i, task
+			go func(i int, task Task[T]) {
+				defer wg.Done()
 
-			res, err := task(ctx)
-			if err != nil {
-				result[i] = Reject[T](err)
-			} else {
-				result[i] = Resolve(res)
-			}
+				defer func() {
+					if in := recover(); in != nil {
+						if err, ok := in.(error); ok {
+							result[i] = Reject[T](err)
+						} else {
+							result[i] = Reject[T](fmt.Errorf("%w: %v", ErrPanic, in))
+						}
+					}
+				}()
+
+				res, err := task(ctx)
+				if err != nil {
+					result[i] = Reject[T](err)
+				} else {
+					result[i] = Resolve(res)
+				}
+			}(i, task)
 		}
+
+		wg.Wait()
 
 		return result, nil
 	})

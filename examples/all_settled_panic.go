@@ -17,17 +17,19 @@ func main() {
 
 	asyncTask := func(ctx context.Context) (int, error) {
 		n := rand.Intn(10)
-		fmt.Println("running task", n)
-		time.Sleep(1 * time.Second)
-		return n, nil
+		panic(fmt.Errorf("panic worker: %d", n))
 	}
 
 	ctx := context.Background()
-	res, err := promise.New(ctx, asyncTask).Await()
+	p1 := promise.New(ctx, asyncTask)
+	p2 := promise.New(ctx, asyncTask)
 
+	result, err := promise.AllSettled(ctx, p1, p2).Await()
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(res)
+	for _, res := range result {
+		fmt.Println(res.Unwrap())
+	}
 }

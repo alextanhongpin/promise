@@ -19,17 +19,22 @@ func main() {
 		n := rand.Intn(10)
 		fmt.Println("running task", n)
 		time.Sleep(1 * time.Second)
+
 		return n, nil
 	}
 
-	asyncThenTask := func(ctx context.Context, n int) (int, error) {
+	asyncThenTask := func(ctx context.Context, n int) (string, error) {
 		fmt.Println("running then", n)
 		time.Sleep(1 * time.Second)
-		return n + 100, nil
+
+		return fmt.Sprintf("got number: %d", n), nil
 	}
 
 	ctx := context.Background()
-	res, err := promise.New(ctx, asyncTask).Then(asyncThenTask).Await()
+	p1 := promise.New(ctx, asyncTask)
+	p2 := promise.Then(ctx, p1, asyncThenTask)
+
+	res, err := p2.Await()
 
 	if err != nil {
 		panic(err)
