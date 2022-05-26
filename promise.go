@@ -61,12 +61,7 @@ func (p *Promise[T]) Await() (T, error) {
 }
 
 func (p *Promise[T]) AwaitResult() *Result[T] {
-	res, err := p.Await()
-	if err != nil {
-		return reject[T](err)
-	}
-
-	return resolve(res)
+	return NewResult(p.Await())
 }
 
 func (p *Promise[T]) resolve(t T) {
@@ -92,12 +87,7 @@ func AllSettled[T any, K []*Result[T]](promises ...*Promise[T]) *Promise[K] {
 			go func(i int, promise *Promise[T]) {
 				defer wg.Done()
 
-				res, err := promise.Await()
-				if err != nil {
-					result[i] = reject[T](err)
-				} else {
-					result[i] = resolve(res)
-				}
+				result[i] = NewResult(promise.Await())
 			}(i, promise)
 		}
 
@@ -127,12 +117,7 @@ func AllTaskSettled[T any, K []*Result[T]](tasks ...Task[T]) *Promise[K] {
 					}
 				}()
 
-				res, err := task()
-				if err != nil {
-					result[i] = reject[T](err)
-				} else {
-					result[i] = resolve(res)
-				}
+				result[i] = NewResult(task())
 			}(i, task)
 		}
 

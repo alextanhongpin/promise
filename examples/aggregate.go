@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"sync"
 	"time"
 
 	"github.com/alextanhongpin/promise"
@@ -102,23 +101,21 @@ func (u *UserAggregate) LoadAll(userID int) *promise.Promise[*User] {
 		}
 		loadIdentityVerification := func(identityVerification *IdentityVerification) *promise.Promise[bool] {
 			u.User.Identity.IdentityVerification = identityVerification
+
 			return promise.Resolve(true)
 		}
 
-		var wg sync.WaitGroup
-		wg.Add(2)
+		loadCountry := u.LoadCountry(user.CountryID)
+		setCountry := func(country *Country) *promise.Promise[bool] {
+			u.User.Country = country
 
-		go func() {
-			defer wg.Done()
+			return promise.Resolve(true)
+		}
 
-			_ = promise.Then(promise.Then(loadIdentity, loadVerification), loadIdentityVerification).AwaitResult()
-		}()
-
-		go func() {
-			defer wg.Done()
-
-			u.LoadCountry(user.CountryID).Await()
-		}()
+		_ = promise.AllSettled(
+			promise.Then(promise.Then(loadIdentity, loadVerification), loadIdentityVerification),
+			promise.Then(loadCountry, setCountry),
+		).AwaitResult()
 
 		return promise.Resolve(user)
 	})
