@@ -1,34 +1,33 @@
 package promise
 
-import "context"
+func Then[T any, R any](promise *Promise[T], resolver func(T) *Promise[R]) *Promise[R] {
 
-func Then[T any, R any](ctx context.Context, promise *Promise[T], resolver func(context.Context, T) (R, error)) *Promise[R] {
-	t, err := promise.Await()
-	if err != nil {
-		return reject[R](err)
-	}
+	return New(func() (R, error) {
+		res, err := promise.Await()
+		if err != nil {
+			return Reject[R](err).Await()
+		}
 
-	return New(ctx, func(ctx context.Context) (R, error) {
-		return resolver(ctx, t)
+		return resolver(res).Await()
 	})
 }
 
 func Catch[T any](promise *Promise[T], catcher func(error)) error {
-	_, err := promise.Await()
-	if err != nil {
+	if _, err := promise.Await(); err != nil {
 		catcher(err)
 		return err
 	}
+
 	return nil
 }
 
-func reject[T any](err error) *Promise[T] {
+func Reject[T any](err error) *Promise[T] {
 	return &Promise[T]{
 		err: err,
 	}
 }
 
-func resolve[T any](t T) *Promise[T] {
+func Resolve[T any](t T) *Promise[T] {
 	return &Promise[T]{
 		res: t,
 	}

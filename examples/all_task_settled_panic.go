@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -16,13 +15,12 @@ func main() {
 		fmt.Println(time.Since(start))
 	}()
 
-	asyncTask := func(ctx context.Context) (int, error) {
+	asyncTask := func() (int, error) {
 		n := rand.Intn(10)
 		panic(fmt.Errorf("intended panic: %d", n))
 	}
 
-	ctx := context.Background()
-	res, err := promise.AllTaskSettled(ctx, asyncTask, asyncTask).Await()
+	res, err := promise.AllTaskSettled(asyncTask, asyncTask).Await()
 	if err != nil {
 		log.Fatal(err)
 	}

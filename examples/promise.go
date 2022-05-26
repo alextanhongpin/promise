@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"time"
@@ -15,15 +14,14 @@ func main() {
 		fmt.Println(time.Since(start))
 	}()
 
-	asyncTask := func(ctx context.Context) (int, error) {
+	asyncTask := func() (int, error) {
 		n := rand.Intn(10)
 		fmt.Println("running task", n)
 		time.Sleep(1 * time.Second)
 		return n, nil
 	}
 
-	ctx := context.Background()
-	res, err := promise.New(ctx, asyncTask).Await()
+	res, err := promise.New(asyncTask).Await()
 
 	if err != nil {
 		panic(err)

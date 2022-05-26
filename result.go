@@ -12,11 +12,11 @@ type Result[T any] struct {
 	dirty bool
 }
 
-func Resolve[T any](t T) *Result[T] {
+func resolve[T any](t T) *Result[T] {
 	return &Result[T]{res: t, dirty: true}
 }
 
-func Reject[T any](err error) *Result[T] {
+func reject[T any](err error) *Result[T] {
 	return &Result[T]{err: err, dirty: true}
 }
 

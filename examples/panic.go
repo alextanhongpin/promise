@@ -1,8 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/alextanhongpin/promise"
@@ -14,14 +14,13 @@ func main() {
 		fmt.Println(time.Since(start))
 	}()
 
-	asyncTask := func(ctx context.Context) (int, error) {
+	asyncTask := func() (int, error) {
 		panic("something happened")
 	}
 
-	ctx := context.Background()
-	res, err := promise.New(ctx, asyncTask).Await()
+	res, err := promise.New(asyncTask).Await()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	fmt.Println(res)
